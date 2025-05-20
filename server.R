@@ -571,5 +571,383 @@ server <- function(input, output, session) {
     subset_label <- paste(subset_label_parts, collapse = " - ")
     create_scatter_plot(filtered_subset_data_scatter(), music_effects, "Hours per Day vs. Music Effects", subset_label)
   })
+  # Updated Mental Health Clusters section in the server.R file
+  # Only showing the relevant parts for the Mental Health Clusters tab
   
+  # Add this to your existing server function
+  
+  # Reactive expression for cluster data
+  cluster_data <- reactive({
+    req(input$cluster_var1, input$cluster_var2, input$num_clusters)
+    
+    # Select the variables for clustering
+    cluster_vars <- c("anxiety", "depression", "insomnia", "ocd")
+    
+    # Create data frame for clustering with only complete cases
+    data_for_clustering <- music_processed %>%
+      select(all_of(cluster_vars), 
+             hours_per_day, 
+             starts_with("frequency_"), 
+             music_effects, 
+             fav_genre) %>%
+      na.omit()
+    
+    # Perform k-means clustering on the mental health variables only
+    set.seed(123) # For reproducibility
+    kmeans_result <- kmeans(data_for_clustering[, cluster_vars], 
+                            centers = input$num_clusters)
+    
+    # Add cluster assignment to the data
+    data_for_clustering$cluster <- factor(kmeans_result$cluster)
+    
+    # Return the clustered data
+    return(data_for_clustering)
+  })
+  
+  # Selected cluster data
+  selected_cluster_data <- reactive({
+    # Get the event data from clicking on the cluster plot
+    event_data <- event_data("plotly_click", source = "cluster_plot")
+    
+    # If no point is selected, return NULL
+    if(is.null(event_data)) {
+      return(NULL)
+    }
+    
+    # Get the cluster number from the point's customdata
+    selected_cluster <- event_data$customdata[1]
+    
+    # Filter the cluster data for the selected cluster
+    cluster_data() %>%
+      filter(cluster == selected_cluster)
+  })
+  
+  # Display cluster or "All Data" label for titles
+  cluster_label <- reactive({
+    selected_data <- selected_cluster_data()
+    if(is.null(selected_data)) {
+      return("All Data")
+    } else {
+      return(paste("Cluster", unique(selected_data$cluster)))
+    }
+  })
+  
+  # Cluster plot
+  output$mental_health_cluster_plot <- renderPlotly({
+    req(cluster_data(), input$cluster_var1, input$cluster_var2)
+    
+    data <- cluster_data()
+    
+    # Create the scatter plot
+    p <- plot_ly(data, 
+                 x = ~get(input$cluster_var1),
+                 y = ~get(input$cluster_var2),
+                 color = ~cluster,
+                 customdata = ~cluster,
+                 type = "scatter",
+                 mode = "markers",
+                 marker = list(size = 10, opacity = 0.7),
+                 source = "cluster_plot") %>%
+      layout(title = "Mental Health Profile Clusters",
+             xaxis = list(title = input$cluster_var1),
+             yaxis = list(title = input$cluster_var2),
+             showlegend = TRUE)
+    
+    # Add cluster centroids if requested
+    if(input$show_cluster_labels) {
+      # Calculate cluster centroids for the plotted variables
+      centroids <- data %>%
+        group_by(cluster) %>%
+        summarize(x = mean(get(input$cluster_var1)),
+                  y = mean(get(input$cluster_var2)))
+      
+      # Add annotations for centroids
+      p <- p %>% add_annotations(
+        data = centroids,
+        x = ~x,
+        y = ~y,
+        text = paste("Cluster", centroids$cluster),
+        showarrow = TRUE,
+        arrowhead = 1,
+        arrowsize = 1,
+        arrowwidth = 2,
+        arrowcolor = "black",
+        font = list(size = 12)
+      )
+    }
+    
+    return(p)
+  })
+  
+  # IMPROVED: Radar chart for selected cluster music preferences with proper normalization
+  output$selected_cluster_radar <- renderPlotly({
+    req(cluster_data())
+    
+    # If no cluster is selected, show the overall average
+    selected_data <- selected_cluster_data()
+    all_data <- cluster_data()
+    
+    if(is.null(selected_data)) {
+      # Use all data if no cluster is selected
+      selected_data <- all_data
+    }
+    
+    # Get the frequency columns
+    frequency_cols <- colnames(selected_data)[grep("^frequency_", colnames(selected_data))]
+    
+    # Calculate the NORMALIZED frequency for each genre
+    # First, convert categories to numeric: Never = 1, Rarely = 2, Sometimes = 3, Very frequently = 4
+    
+    # Process for selected cluster/all data
+    radar_data_selected <- selected_data %>%
+      mutate(across(all_of(frequency_cols), 
+                    ~as.numeric(factor(., levels = c("Never", "Rarely", "Sometimes", "Very frequently"))))) %>%
+      summarize(across(all_of(frequency_cols), mean, na.rm = TRUE))
+    
+    # Process for all data (for comparison)
+    radar_data_all <- all_data %>%
+      mutate(across(all_of(frequency_cols), 
+                    ~as.numeric(factor(., levels = c("Never", "Rarely", "Sometimes", "Very frequently"))))) %>%
+      summarize(across(all_of(frequency_cols), mean, na.rm = TRUE))
+    
+    # Reshape for radar chart - selected data
+    radar_long_selected <- radar_data_selected %>%
+      tidyr::pivot_longer(cols = everything(), 
+                          names_to = "Genre", 
+                          values_to = "Frequency") %>%
+      mutate(Genre = gsub("frequency_", "", Genre),
+             Genre = gsub("_", " ", Genre),
+             Dataset = cluster_label())
+    
+    # Reshape for radar chart - all data (only if showing selected cluster)
+    radar_long_all <- radar_data_all %>%
+      tidyr::pivot_longer(cols = everything(), 
+                          names_to = "Genre", 
+                          values_to = "Frequency") %>%
+      mutate(Genre = gsub("frequency_", "", Genre),
+             Genre = gsub("_", " ", Genre),
+             Dataset = "All Data")
+    
+    # Combine datasets if showing a selected cluster
+    if(!is.null(selected_cluster_data())) {
+      radar_long <- bind_rows(radar_long_selected, radar_long_all)
+    } else {
+      radar_long <- radar_long_selected
+    }
+    
+    # Create radar chart
+    plot_ly() %>%
+      add_trace(
+        data = radar_long,
+        r = ~Frequency,
+        theta = ~Genre,
+        color = ~Dataset,
+        fill = 'toself',
+        type = 'scatterpolar',
+        line = list(width = 2)
+      ) %>%
+      layout(
+        polar = list(
+          radialaxis = list(
+            visible = TRUE,
+            range = c(1, 4),
+            tickvals = c(1, 2, 3, 4),
+            ticktext = c("Never", "Rarely", "Sometimes", "Very frequently")
+          )
+        ),
+        title = paste("Music Genre Preferences -", cluster_label()),
+        showlegend = TRUE
+      )
+  })
+  
+  # Only showing relevant parts related to the Mental Health Clusters tab changes
+  # The improved sections will replace the existing mental health cluster visualizations
+  
+  # IMPROVED: Replaced with side-by-side boxplots for all mental health metrics for selected cluster
+  output$selected_cluster_barchart <- renderPlotly({
+    req(cluster_data())
+    
+    # Get all clusters data
+    all_data <- cluster_data()
+    
+    # Get selected cluster if any
+    selected_data <- selected_cluster_data()
+    
+    # Determine which data to use and prepare a title
+    if(is.null(selected_data)) {
+      # If no cluster selected, use all data but make it clear 
+      plot_data <- all_data
+      plot_title <- "Mental Health Metrics - All Data (Select a cluster from the plot)"
+    } else {
+      # Use only the selected cluster data
+      plot_data <- selected_data
+      plot_title <- paste("Mental Health Metrics - Cluster", unique(selected_data$cluster))
+    }
+    
+    # Extract mental health metrics
+    mental_health_cols <- c("anxiety", "depression", "insomnia", "ocd")
+    
+    # Reshape data for boxplot - longer format for easier plotting
+    boxplot_data <- plot_data %>%
+      select(all_of(mental_health_cols)) %>%
+      tidyr::pivot_longer(cols = everything(), 
+                          names_to = "Metric", 
+                          values_to = "Value") %>%
+      mutate(Metric = factor(Metric, levels = mental_health_cols))
+    
+    # Define custom colors for each metric
+    metric_colors <- c("anxiety" = "#FF7F50", "depression" = "#6495ED", 
+                       "insomnia" = "#32CD32", "ocd" = "#FFD700")
+    
+    # Create boxplots showing all four metrics side by side
+    p <- plot_ly() %>%
+      add_boxplot(
+        data = boxplot_data,
+        x = ~Metric,
+        y = ~Value,
+        color = ~Metric,
+        colors = metric_colors,
+        boxpoints = "all",
+        jitter = 0.3,
+        pointpos = 0,
+        marker = list(opacity = 0.7),
+        showlegend = FALSE
+      ) %>%
+      layout(
+        title = plot_title,
+        xaxis = list(title = "", 
+                     categoryorder = "array",
+                     categoryarray = mental_health_cols,
+                     ticktext = c("Anxiety", "Depression", "Insomnia", "OCD"),
+                     tickvals = mental_health_cols),
+        yaxis = list(title = "Score (0-10)",
+                     range = c(0, 10))
+      )
+    
+    return(p)
+  })
+  
+  # IMPROVED: Radar chart with better visibility between selected cluster and global data
+  output$selected_cluster_radar <- renderPlotly({
+    req(cluster_data())
+    
+    # Get all clusters data
+    all_data <- cluster_data()
+    
+    # Get selected cluster if any
+    selected_data <- selected_cluster_data()
+    
+    # Determine if we're showing a specific cluster or all data
+    if(is.null(selected_data)) {
+      # If no cluster selected, just show all data
+      plot_title <- "Music Genre Preferences - All Data"
+      show_comparison <- FALSE
+      selected_data <- all_data  # Use all data as the "selected" data
+    } else {
+      # If a cluster is selected, prepare both datasets
+      plot_title <- paste("Music Genre Preferences - Cluster", unique(selected_data$cluster), "vs All Data")
+      show_comparison <- TRUE
+    }
+    
+    # Get the frequency columns
+    frequency_cols <- colnames(all_data)[grep("^frequency_", colnames(all_data))]
+    
+    # Process for selected cluster/all data
+    radar_data_selected <- selected_data %>%
+      mutate(across(all_of(frequency_cols), 
+                    ~as.numeric(factor(., levels = c("Never", "Rarely", "Sometimes", "Very frequently"))))) %>%
+      summarize(across(all_of(frequency_cols), mean, na.rm = TRUE))
+    
+    # Process for all data (for comparison)
+    radar_data_all <- all_data %>%
+      mutate(across(all_of(frequency_cols), 
+                    ~as.numeric(factor(., levels = c("Never", "Rarely", "Sometimes", "Very frequently"))))) %>%
+      summarize(across(all_of(frequency_cols), mean, na.rm = TRUE))
+    
+    # Reshape for radar chart - selected data
+    radar_long_selected <- radar_data_selected %>%
+      tidyr::pivot_longer(cols = everything(), 
+                          names_to = "Genre", 
+                          values_to = "Frequency") %>%
+      mutate(Genre = gsub("frequency_", "", Genre),
+             Genre = gsub("_", " ", Genre),
+             Dataset = if(is.null(selected_cluster_data())) "All Data" else paste("Cluster", unique(selected_data$cluster)))
+    
+    # Create radar chart
+    p <- plot_ly()
+    
+    # If showing comparison, add global data with reduced opacity
+    if(show_comparison) {
+      # Reshape for radar chart - all data (only if showing selected cluster)
+      radar_long_all <- radar_data_all %>%
+        tidyr::pivot_longer(cols = everything(), 
+                            names_to = "Genre", 
+                            values_to = "Frequency") %>%
+        mutate(Genre = gsub("frequency_", "", Genre),
+               Genre = gsub("_", " ", Genre),
+               Dataset = "All Data")
+      
+      # Add all data trace with reduced opacity
+      p <- p %>% add_trace(
+        data = radar_long_all,
+        r = ~Frequency,
+        theta = ~Genre,
+        name = "All Data",
+        fill = 'toself',
+        type = 'scatterpolar',
+        fillcolor = 'rgba(200, 200, 200, 0.2)',  # Very light gray fill
+        line = list(color = 'rgba(150, 150, 150, 0.7)', width = 1, dash = 'dot') # Light gray dotted line
+      )
+    }
+    
+    # Add selected cluster trace with vibrant color
+    p <- p %>% add_trace(
+      data = radar_long_selected,
+      r = ~Frequency,
+      theta = ~Genre,
+      name = unique(radar_long_selected$Dataset),
+      fill = 'toself',
+      type = 'scatterpolar',
+      fillcolor = 'rgba(255, 100, 50, 0.6)',  # Vibrant orange fill with transparency
+      line = list(color = 'rgb(255, 100, 50)', width = 2.5)  # Solid thick orange line
+    )
+    
+    # Layout
+    p <- p %>% layout(
+      polar = list(
+        radialaxis = list(
+          visible = TRUE,
+          range = c(1, 4),
+          tickvals = c(1, 2, 3, 4),
+          ticktext = c("Never", "Rarely", "Sometimes", "Very frequently")
+        )
+      ),
+      title = plot_title,
+      legend = list(x = 0.5, y = 1.1, orientation = 'h')
+    )
+    
+    return(p)
+  })
+  # Data table for the selected cluster or all data
+  output$cluster_data_table <- renderDataTable({
+    # If no cluster is selected, show all clustered data
+    data <- selected_cluster_data()
+    if(is.null(data)) {
+      data <- cluster_data()
+    }
+    
+    # Clean data for display
+    display_data <- data %>%
+      select(cluster, anxiety, depression, insomnia, ocd, hours_per_day, fav_genre, music_effects)
+    
+    # Create datatable
+    datatable(display_data, 
+              options = list(pageLength = 5, 
+                             scrollX = TRUE),
+              caption = if(is.null(selected_cluster_data())) {
+                "All Respondents (Click on a cluster in the plot above to filter)"
+              } else {
+                paste("Respondents in Cluster", unique(data$cluster))
+              })
+  })
 } # End of shinyServer function

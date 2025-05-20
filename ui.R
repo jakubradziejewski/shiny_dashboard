@@ -11,7 +11,8 @@ ui <- dashboardPage(
       menuItem("Data Explorer", tabName = "data_explorer", icon = icon("database")),
       menuItem("Genre & Mental Health", tabName = "genre_mental_health", icon = icon("heartbeat")),
       menuItem("Frequency Analysis", tabName = "frequency_analysis", icon = icon("music")),
-      menuItem("Hours vs. Health", tabName = "hours_vs_health", icon = icon("clock-o"))
+      menuItem("Hours vs. Health", tabName = "hours_vs_health", icon = icon("clock-o")),
+      menuItem("Mental Health Clusters", tabName = "mental_health_clusters", icon = icon("brain"))
     )
   ),
   dashboardBody(
@@ -172,6 +173,52 @@ ui <- dashboardPage(
               fluidRow(
                 box(title = "Hours per Day vs. Music Effects", status = "danger", solidHeader = TRUE,
                     plotlyOutput("plot_hours_music_effects_scatter"),
+                    width = 12
+                )
+              )
+      ),
+      tabItem(tabName = "mental_health_clusters",
+              h2("Mental Health Profile Clusters"),
+              fluidRow(
+                box(title = "Cluster Controls", status = "primary", solidHeader = TRUE,
+                    column(6, 
+                           selectInput("cluster_var1", "X-Axis Variable:", 
+                                       choices = c("anxiety", "depression", "insomnia", "ocd"),
+                                       selected = "anxiety")
+                    ),
+                    column(6, 
+                           selectInput("cluster_var2", "Y-Axis Variable:", 
+                                       choices = c("anxiety", "depression", "insomnia", "ocd"),
+                                       selected = "depression")
+                    ),
+                    column(6,
+                           numericInput("num_clusters", "Number of Clusters:", 
+                                        value = 3, min = 2, max = 6)
+                    ),
+                    column(6,
+                           checkboxInput("show_cluster_labels", "Show Cluster Labels", 
+                                         value = TRUE)
+                    ),
+                    width = 4
+                ),
+                box(title = "Mental Health Profile Clusters", status = "warning", solidHeader = TRUE,
+                    plotlyOutput("mental_health_cluster_plot", height = "500px"),
+                    width = 8
+                )
+              ),
+              fluidRow(
+                box(title = "Selected Cluster Music Profile", status = "success", solidHeader = TRUE,
+                    plotlyOutput("selected_cluster_radar", height = "400px"),
+                    width = 6
+                ),
+                box(title = "Selected Cluster Details", status = "info", solidHeader = TRUE,
+                    plotlyOutput("selected_cluster_barchart", height = "400px"),
+                    width = 6
+                )
+              ),
+              fluidRow(
+                box(title = "Cluster Data Table", status = "primary", solidHeader = TRUE,
+                    dataTableOutput("cluster_data_table"),
                     width = 12
                 )
               )
