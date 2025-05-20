@@ -7,9 +7,7 @@ ui <- dashboardPage(
   dashboardHeader(title = "Boredom Level & Music Habits"),
   dashboardSidebar(
     sidebarMenu(
-      menuItem("Overview Dashboard", tabName = "dashboard", icon = icon("dashboard")),
       menuItem("Data Explorer", tabName = "data_explorer", icon = icon("database")),
-      menuItem("Genre & Mental Health", tabName = "genre_mental_health", icon = icon("heartbeat")),
       menuItem("Frequency Analysis", tabName = "frequency_analysis", icon = icon("music")),
       menuItem("Hours vs. Health", tabName = "hours_vs_health", icon = icon("clock-o")),
       menuItem("Mental Health Clusters", tabName = "mental_health_clusters", icon = icon("brain"))
@@ -17,16 +15,6 @@ ui <- dashboardPage(
   ),
   dashboardBody(
     tabItems(
-      tabItem(tabName = "dashboard",
-              h2("Music Habits Overview"),
-              fluidRow(
-                box(title = "Boredom Level Input", status = "primary", solidHeader = TRUE,
-                    sliderInput("testRange", "Boredom level:", min = 0, max = 100, value = c(20, 80)),
-                    textOutput("testText"),
-                    width = 12
-                )
-              )
-      ),
       
       tabItem(tabName = "data_explorer",
               h2("Explore the Raw Data"),
@@ -34,45 +22,8 @@ ui <- dashboardPage(
               dataTableOutput("data")
       ),
       
-      tabItem(tabName = "genre_mental_health",
-              h2("Mental Health Metrics by Favorite Genre"),
-              fluidRow(
-                box(title = "Select Music Genre", status = "info", solidHeader = TRUE,
-                    selectInput("selected_genre", "Choose a Favorite Genre:",
-                                choices = NULL),
-                    width = 12
-                )
-              ),
-              fluidRow(
-                box(title = "Anxiety Distribution", status = "warning", solidHeader = TRUE,
-                    plotlyOutput("plot_anxiety_dist"),
-                    width = 6
-                ),
-                box(title = "Depression Distribution", status = "warning", solidHeader = TRUE,
-                    plotlyOutput("plot_depression_dist"),
-                    width = 6
-                )
-              ),
-              fluidRow(
-                box(title = "Insomnia Distribution", status = "warning", solidHeader = TRUE,
-                    plotlyOutput("plot_insomnia_dist"),
-                    width = 6
-                ),
-                box(title = "OCD Distribution", status = "warning", solidHeader = TRUE,
-                    plotlyOutput("plot_ocd_dist"),
-                    width = 6
-                )
-              ),
-              fluidRow(
-                box(title = "Music Effects Distribution", status = "warning", solidHeader = TRUE,
-                    plotlyOutput("plot_music_effects_dist"),
-                    width = 12
-                )
-              )
-      ),
-      
       tabItem(tabName = "frequency_analysis",
-              h2("Mental Health Metrics by Listening Frequency of Specific Genres and Characteristics"), # Updated title
+              h2("Mental Health Metrics by Listening Frequency of Specific Genres and Characteristics"),
               fluidRow(
                 box(title = "Select Genre Frequency and Level", status = "info", solidHeader = TRUE,
                     column(6,
@@ -88,12 +39,11 @@ ui <- dashboardPage(
               ),
               fluidRow(
                 box(title = "Filter by Characteristics", status = "info", solidHeader = TRUE,
-                    # Added characteristic filter dropdowns to this tab
-                    column(4, selectInput("filter_while_working_freq", "While Working:", choices = c("All", "Yes", "No"), selected = "All")), # New input ID
-                    column(4, selectInput("filter_instrumentalist_freq", "Instrumentalist:", choices = c("All", "Yes", "No"), selected = "All")), # New input ID
-                    column(4, selectInput("filter_composer_freq", "Composer:", choices = c("All", "Yes", "No"), selected = "All")), # New input ID
-                    column(4, selectInput("filter_exploratory_freq", "Exploratory:", choices = c("All", "Yes", "No"), selected = "All")), # New input ID
-                    column(4, selectInput("filter_foreign_languages_freq", "Foreign Languages:", choices = c("All", "Yes", "No"), selected = "All")), # New input ID
+                    column(4, selectInput("filter_while_working_freq", "While Working:", choices = c("All", "Yes", "No"), selected = "All")),
+                    column(4, selectInput("filter_instrumentalist_freq", "Instrumentalist:", choices = c("All", "Yes", "No"), selected = "All")),
+                    column(4, selectInput("filter_composer_freq", "Composer:", choices = c("All", "Yes", "No"), selected = "All")),
+                    column(4, selectInput("filter_exploratory_freq", "Exploratory:", choices = c("All", "Yes", "No"), selected = "All")),
+                    column(4, selectInput("filter_foreign_languages_freq", "Foreign Languages:", choices = c("All", "Yes", "No"), selected = "All")),
                     width = 12
                 )
               ),
@@ -183,12 +133,12 @@ ui <- dashboardPage(
                 box(title = "Cluster Controls", status = "primary", solidHeader = TRUE,
                     column(6, 
                            selectInput("cluster_var1", "X-Axis Variable:", 
-                                       choices = c("anxiety", "depression", "insomnia", "ocd"),
+                                       choices = c("anxiety", "depression", "insomnia", "ocd","hours_per_day", "age", "bpm"),
                                        selected = "anxiety")
                     ),
                     column(6, 
                            selectInput("cluster_var2", "Y-Axis Variable:", 
-                                       choices = c("anxiety", "depression", "insomnia", "ocd"),
+                                       choices = c("anxiety", "depression", "insomnia", "ocd", "hours_per_day", "age", "bpm"),
                                        selected = "depression")
                     ),
                     column(6,
@@ -223,6 +173,7 @@ ui <- dashboardPage(
                 )
               )
       )
+      
     )
   )
 )
