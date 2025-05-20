@@ -128,13 +128,13 @@ ui <- dashboardPage(
               )
       ),
       tabItem(tabName = "mental_health_clusters",
-              h2("Mental Health Profile Clusters"),
+              h2("Clustering variables to find mental health profiles"),
               fluidRow(
-                box(title = "Cluster Controls", status = "primary", solidHeader = TRUE,
+                box(title = "Choose variables to make clusters", status = "primary", solidHeader = TRUE,
                     column(6, 
                            selectInput("cluster_var1", "X-Axis Variable:", 
                                        choices = c("anxiety", "depression", "insomnia", "ocd","hours_per_day", "age", "bpm"),
-                                       selected = "anxiety")
+                                       selected = "hours_per_day")
                     ),
                     column(6, 
                            selectInput("cluster_var2", "Y-Axis Variable:", 
@@ -147,27 +147,27 @@ ui <- dashboardPage(
                     ),
                     column(6,
                            checkboxInput("show_cluster_labels", "Show Cluster Labels", 
-                                         value = TRUE)
+                                         value = FALSE)
                     ),
                     width = 4
                 ),
-                box(title = "Mental Health Profile Clusters", status = "warning", solidHeader = TRUE,
+                box(title = "Mental Health Profile Clusters", status = "info", solidHeader = TRUE,
                     plotlyOutput("mental_health_cluster_plot", height = "500px"),
                     width = 8
                 )
               ),
+             fluidRow(
+               box(title = "Music Profile", status = "primary", solidHeader = TRUE,
+                   plotlyOutput("selected_cluster_radar", height = "600px"),  # Increased height here
+                   width = 6
+               ),
+               box(title = "Mental Health Profile", status = "info", solidHeader = TRUE,
+                   plotlyOutput("selected_cluster_barchart", height = "600px"),  # Also increased for consistency
+                   width = 6
+               )
+             ),
               fluidRow(
-                box(title = "Selected Cluster Music Profile", status = "success", solidHeader = TRUE,
-                    plotlyOutput("selected_cluster_radar", height = "400px"),
-                    width = 6
-                ),
-                box(title = "Selected Cluster Details", status = "info", solidHeader = TRUE,
-                    plotlyOutput("selected_cluster_barchart", height = "400px"),
-                    width = 6
-                )
-              ),
-              fluidRow(
-                box(title = "Cluster Data Table", status = "primary", solidHeader = TRUE,
+                box(title = "Data Table", status = "info", solidHeader = TRUE,
                     dataTableOutput("cluster_data_table"),
                     width = 12
                 )

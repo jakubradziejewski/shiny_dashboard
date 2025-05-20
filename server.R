@@ -16,6 +16,11 @@ music_raw <- read_csv("music.csv", show_col_types = FALSE)
 music_clean_names <- music_raw %>%
   clean_names()
 
+bpm_median <- median(music_clean_names$bpm[music_clean_names$bpm <= 1000], na.rm = TRUE)
+
+music_clean_names <- music_clean_names %>%
+  mutate(bpm = ifelse(is.na(bpm) | bpm > 500, bpm_median, bpm)) %>%
+  filter(hours_per_day < 20)
 interval_cols <- music_clean_names %>%
   select(anxiety, depression, insomnia, ocd)
 
@@ -415,8 +420,31 @@ server <- function(input, output, session) {
     create_scatter_plot(filtered_subset_data_scatter(), music_effects, "Hours per Day vs. Music Effects", subset_label)
   })
   
+  # Add these to track changes that should reset the selected cluster
+  rv <- reactiveValues(
+    previous_cluster_var1 = NULL,
+    previous_cluster_var2 = NULL,
+    previous_num_clusters = NULL,
+    selected_cluster = NULL
+  )
+  
   cluster_data <- reactive({
     req(input$cluster_var1, input$cluster_var2, input$num_clusters)
+    
+    # Check if variables or number of clusters changed
+    if (is.null(rv$previous_cluster_var1) || is.null(rv$previous_cluster_var2) || is.null(rv$previous_num_clusters) ||
+        rv$previous_cluster_var1 != input$cluster_var1 || 
+        rv$previous_cluster_var2 != input$cluster_var2 || 
+        rv$previous_num_clusters != input$num_clusters) {
+      
+      # Reset selected cluster when parameters change
+      rv$selected_cluster <- NULL
+      
+      # Update previous values
+      rv$previous_cluster_var1 <- input$cluster_var1
+      rv$previous_cluster_var2 <- input$cluster_var2
+      rv$previous_num_clusters <- input$num_clusters
+    }
     
     cluster_vars <- c(input$cluster_var1, input$cluster_var2)
     
@@ -455,17 +483,74 @@ server <- function(input, output, session) {
     return(data_for_clustering)
   })
   
-  selected_cluster_data <- reactive({
-    event_data <- event_data("plotly_click", source = "cluster_plot")
+  # Update the selected cluster when plot is clicked
+  observeEvent(event_data("plotly_click", source = "cluster_plot"), {
+    click_data <- event_data("plotly_click", source = "cluster_plot")
     
-    if(is.null(event_data)) {
+    if(!is.null(click_data) && !is.null(click_data$customdata)) {
+      selected_cluster <- click_data$customdata[1]
+      
+      # Check if selected cluster is valid (within current number of clusters)
+      if(!is.null(input$num_clusters) && as.numeric(selected_cluster) <= input$num_clusters) {
+        rv$selected_cluster <- selected_cluster
+      } else {
+        rv$selected_cluster <- NULL
+      }
+    }
+  })
+  # Add this code after your existing observe blocks that update the frequency columns
+  observeEvent(input$cluster_var1, {
+    req(input$cluster_var1)
+    
+    # Get all potential clustering variables
+    all_clustering_vars <- names(music_processed)[sapply(music_processed, is.numeric)]
+    
+    # Remove the selected X variable from the Y choices
+    y_choices <- setdiff(all_clustering_vars, input$cluster_var1)
+    
+    # Update the Y variable dropdown
+    updateSelectInput(session, "cluster_var2",
+                      choices = y_choices,
+                      selected = if(input$cluster_var2 != input$cluster_var1) input$cluster_var2 else y_choices[1])
+  })
+  
+  observeEvent(input$cluster_var2, {
+    req(input$cluster_var2)
+    
+    # Get all potential clustering variables
+    all_clustering_vars <- names(music_processed)[sapply(music_processed, is.numeric)]
+    
+    # Remove the selected Y variable from the X choices
+    x_choices <- setdiff(all_clustering_vars, input$cluster_var2)
+    
+    # Update the X variable dropdown
+    updateSelectInput(session, "cluster_var1",
+                      choices = x_choices,
+                      selected = if(input$cluster_var1 != input$cluster_var2) input$cluster_var1 else x_choices[1])
+  })
+  selected_cluster_data <- reactive({
+    # Return NULL if no cluster is selected or if the selected cluster is invalid
+    if(is.null(rv$selected_cluster) || is.null(cluster_data()) || is.null(input$num_clusters)) {
       return(NULL)
     }
     
-    selected_cluster <- event_data$customdata[1]
+    # Validate that selected cluster exists in current data
+    if(as.numeric(rv$selected_cluster) > input$num_clusters) {
+      rv$selected_cluster <- NULL
+      return(NULL)
+    }
     
-    cluster_data() %>%
-      filter(cluster == selected_cluster)
+    # Return the data for the selected cluster
+    filtered_data <- cluster_data() %>%
+      filter(cluster == rv$selected_cluster)
+    
+    # If filtering resulted in no data, reset the selection
+    if(nrow(filtered_data) == 0) {
+      rv$selected_cluster <- NULL
+      return(NULL)
+    }
+    
+    return(filtered_data)
   })
   
   cluster_label <- reactive({
@@ -473,7 +558,7 @@ server <- function(input, output, session) {
     if(is.null(selected_data)) {
       return("All Data")
     } else {
-      return(paste("Cluster", unique(selected_data$cluster)))
+      return(paste("Cluster", rv$selected_cluster))
     }
   })
   
@@ -494,7 +579,7 @@ server <- function(input, output, session) {
                  mode = "markers",
                  marker = list(size = 10, opacity = 0.7),
                  source = "cluster_plot") %>%
-      layout(title = "Mental Health Profile Clusters",
+      layout(title = "Clusters (click on a point to select a cluster)",
              xaxis = list(title = x_var),
              yaxis = list(title = y_var),
              showlegend = TRUE)
@@ -521,6 +606,9 @@ server <- function(input, output, session) {
     
     return(p)
   })
+  
+  
+  
   
   output$selected_cluster_radar <- renderPlotly({
     req(cluster_data())
@@ -562,28 +650,20 @@ server <- function(input, output, session) {
              Genre = gsub("_", " ", Genre),
              Dataset = if(is.null(selected_cluster_data())) "All Data" else paste("Cluster", unique(selected_data$cluster)))
     
+    radar_long_all <- radar_data_all %>%
+      tidyr::pivot_longer(cols = everything(),
+                          names_to = "Genre",
+                          values_to = "Frequency") %>%
+      mutate(Genre = gsub("frequency_", "", Genre),
+             Genre = gsub("_", " ", Genre),
+             Dataset = "All Data")
+    
     p <- plot_ly()
     
-    if(show_comparison) {
-      radar_long_all <- radar_data_all %>%
-        tidyr::pivot_longer(cols = everything(),
-                            names_to = "Genre",
-                            values_to = "Frequency") %>%
-        mutate(Genre = gsub("frequency_", "", Genre),
-               Genre = gsub("_", " ", Genre),
-               Dataset = "All Data")
-      
-      p <- p %>% add_trace(
-        data = radar_long_all,
-        r = ~Frequency,
-        theta = ~Genre,
-        name = "All Data",
-        fill = 'toself',
-        type = 'scatterpolar',
-        fillcolor = 'rgba(200, 200, 200, 0.2)',
-        line = list(color = 'rgba(150, 150, 150, 0.7)', width = 1, dash = 'dot')
-      )
-    }
+    # First add the selected cluster or all data as the base layer with semi-transparent fill
+    # Define cluster colors for consistency
+    cluster_fill_color <- if(is.null(selected_cluster_data())) 'rgba(70, 130, 180, 0.3)' else 'rgba(255, 100, 50, 0.6)'
+    cluster_line_color <- if(is.null(selected_cluster_data())) 'rgba(50, 100, 160, 0.9)' else 'rgba(220, 70, 20, 0.9)'
     
     p <- p %>% add_trace(
       data = radar_long_selected,
@@ -592,25 +672,63 @@ server <- function(input, output, session) {
       name = unique(radar_long_selected$Dataset),
       fill = 'toself',
       type = 'scatterpolar',
-      fillcolor = 'rgba(255, 100, 50, 0.6)',
-      line = list(color = 'rgb(255, 100, 50)', width = 2.5)
+      fillcolor = cluster_fill_color,
+      line = list(
+        color = cluster_line_color, 
+        width = 2.5
+      ),
+      marker = list(
+        size = 5,
+        color = cluster_line_color,
+        symbol = 'circle'
+      )
+    )
+    
+    # Always add the global values line on top with stronger visibility,
+    # even if it's the same as selected_data when no cluster is selected
+    p <- p %>% add_trace(
+      data = radar_long_all,
+      r = ~Frequency,
+      theta = ~Genre,
+      name = "Global Average",
+      fill = 'none',  # No fill for the global line to ensure visibility
+      type = 'scatterpolar',
+      line = list(
+        color = 'rgb(0, 50, 150)',  # Consistent dark blue for global values
+        width = 3,  # Thicker line for better visibility
+        dash = 'solid'
+      ),
+      marker = list(
+        size = 6,  # Larger points for better visibility
+        color = 'rgb(0, 50, 150)',
+        symbol = 'circle'
+      )
     )
     
     p <- p %>% layout(
       polar = list(
         radialaxis = list(
           visible = TRUE,
-          range = c(1, 4),
+          range = c(0, 4.2),  # Extend the range a bit for better visibility
           tickvals = c(1, 2, 3, 4),
           ticktext = c("Never", "Rarely", "Sometimes", "Very frequently")
         )
       ),
       title = plot_title,
-      legend = list(x = 0.5, y = 1.1, orientation = 'h')
+      legend = list(
+        x = 0.5, 
+        y = 1.1, 
+        orientation = 'h',
+        traceorder = "normal"  # Ensure consistent legend order
+      ),
+      margin = list(t = 100, b = 50, l = 50, r = 50),
+      autosize = TRUE,
+      height = 600
     )
     
     return(p)
   })
+  
   
   output$selected_cluster_barchart <- renderPlotly({
     req(cluster_data())
