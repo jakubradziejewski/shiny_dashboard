@@ -10,7 +10,7 @@ library(tidyr)
 library(viridis)
 library(scales)
 library(cluster)
-
+library(stringr)  
 music_raw <- read_csv("music.csv", show_col_types = FALSE)
 
 music_clean_names <- music_raw %>%
@@ -420,7 +420,10 @@ server <- function(input, output, session) {
     create_scatter_plot(filtered_subset_data_scatter(), music_effects, "Hours per Day vs. Music Effects", subset_label)
   })
   
-  # Add these to track changes that should reset the selected cluster
+  ### Real Dashboard starts here ###
+  
+  # Reset changes every time the variable is changed or number of clusters is less than selected cluster number
+  # Act like a live object
   rv <- reactiveValues(
     previous_cluster_var1 = NULL,
     previous_cluster_var2 = NULL,
@@ -428,19 +431,16 @@ server <- function(input, output, session) {
     selected_cluster = NULL
   )
   
+  # Reactive expression for clustering 
   cluster_data <- reactive({
     req(input$cluster_var1, input$cluster_var2, input$num_clusters)
     
-    # Check if variables or number of clusters changed
     if (is.null(rv$previous_cluster_var1) || is.null(rv$previous_cluster_var2) || is.null(rv$previous_num_clusters) ||
         rv$previous_cluster_var1 != input$cluster_var1 || 
         rv$previous_cluster_var2 != input$cluster_var2 || 
-        rv$previous_num_clusters != input$num_clusters) {
-      
-      # Reset selected cluster when parameters change
+        rv$previous_num_clusters != input$num_clusters) 
+      {
       rv$selected_cluster <- NULL
-      
-      # Update previous values
       rv$previous_cluster_var1 <- input$cluster_var1
       rv$previous_cluster_var2 <- input$cluster_var2
       rv$previous_num_clusters <- input$num_clusters
@@ -474,6 +474,8 @@ server <- function(input, output, session) {
     scaled_data <- scale(data_for_clustering[, actual_cluster_vars_present])
     
     dist_matrix <- dist(scaled_data, method = "euclidean")
+    
+    # Performs hierarchical clustering on scaled data
     hclust_result <- hclust(dist_matrix, method = "ward.D2")
     
     cluster_assignments <- cutree(hclust_result, k = input$num_clusters)
@@ -483,14 +485,13 @@ server <- function(input, output, session) {
     return(data_for_clustering)
   })
   
-  # Update the selected cluster when plot is clicked
+  # Update the selected cluster when main plot is clicked
   observeEvent(event_data("plotly_click", source = "cluster_plot"), {
     click_data <- event_data("plotly_click", source = "cluster_plot")
     
     if(!is.null(click_data) && !is.null(click_data$customdata)) {
       selected_cluster <- click_data$customdata[1]
       
-      # Check if selected cluster is valid (within current number of clusters)
       if(!is.null(input$num_clusters) && as.numeric(selected_cluster) <= input$num_clusters) {
         rv$selected_cluster <- selected_cluster
       } else {
@@ -498,17 +499,13 @@ server <- function(input, output, session) {
       }
     }
   })
-  # Add this code after your existing observe blocks that update the frequency columns
+  
+  # Both observers are ensuring proper x and y axes dropdowns
   observeEvent(input$cluster_var1, {
     req(input$cluster_var1)
-    
-    # Get all potential clustering variables
     all_clustering_vars <- names(music_processed)[sapply(music_processed, is.numeric)]
-    
-    # Remove the selected X variable from the Y choices
     y_choices <- setdiff(all_clustering_vars, input$cluster_var1)
-    
-    # Update the Y variable dropdown
+
     updateSelectInput(session, "cluster_var2",
                       choices = y_choices,
                       selected = if(input$cluster_var2 != input$cluster_var1) input$cluster_var2 else y_choices[1])
@@ -516,35 +513,28 @@ server <- function(input, output, session) {
   
   observeEvent(input$cluster_var2, {
     req(input$cluster_var2)
-    
-    # Get all potential clustering variables
     all_clustering_vars <- names(music_processed)[sapply(music_processed, is.numeric)]
-    
-    # Remove the selected Y variable from the X choices
+
     x_choices <- setdiff(all_clustering_vars, input$cluster_var2)
-    
-    # Update the X variable dropdown
     updateSelectInput(session, "cluster_var1",
                       choices = x_choices,
                       selected = if(input$cluster_var1 != input$cluster_var2) input$cluster_var1 else x_choices[1])
   })
+  
+  # Provides data for currently selected cluster
   selected_cluster_data <- reactive({
-    # Return NULL if no cluster is selected or if the selected cluster is invalid
     if(is.null(rv$selected_cluster) || is.null(cluster_data()) || is.null(input$num_clusters)) {
       return(NULL)
     }
     
-    # Validate that selected cluster exists in current data
     if(as.numeric(rv$selected_cluster) > input$num_clusters) {
       rv$selected_cluster <- NULL
       return(NULL)
     }
-    
-    # Return the data for the selected cluster
+
     filtered_data <- cluster_data() %>%
       filter(cluster == rv$selected_cluster)
-    
-    # If filtering resulted in no data, reset the selection
+
     if(nrow(filtered_data) == 0) {
       rv$selected_cluster <- NULL
       return(NULL)
@@ -553,6 +543,7 @@ server <- function(input, output, session) {
     return(filtered_data)
   })
   
+  # Reactive object updates for title updates
   cluster_label <- reactive({
     selected_data <- selected_cluster_data()
     if(is.null(selected_data)) {
@@ -562,6 +553,7 @@ server <- function(input, output, session) {
     }
   })
   
+  # Main plot
   output$mental_health_cluster_plot <- renderPlotly({
     req(cluster_data(), input$cluster_var1, input$cluster_var2)
     
@@ -609,7 +601,7 @@ server <- function(input, output, session) {
   
   
   
-  
+  # Radar plot
   output$selected_cluster_radar <- renderPlotly({
     req(cluster_data())
     
@@ -660,8 +652,6 @@ server <- function(input, output, session) {
     
     p <- plot_ly()
     
-    # First add the selected cluster or all data as the base layer with semi-transparent fill
-    # Define cluster colors for consistency
     cluster_fill_color <- if(is.null(selected_cluster_data())) 'rgba(70, 130, 180, 0.3)' else 'rgba(255, 100, 50, 0.6)'
     cluster_line_color <- if(is.null(selected_cluster_data())) 'rgba(50, 100, 160, 0.9)' else 'rgba(220, 70, 20, 0.9)'
     
@@ -683,23 +673,21 @@ server <- function(input, output, session) {
         symbol = 'circle'
       )
     )
-    
-    # Always add the global values line on top with stronger visibility,
-    # even if it's the same as selected_data when no cluster is selected
+
     p <- p %>% add_trace(
       data = radar_long_all,
       r = ~Frequency,
       theta = ~Genre,
       name = "Global Average",
-      fill = 'none',  # No fill for the global line to ensure visibility
+      fill = 'none',
       type = 'scatterpolar',
       line = list(
-        color = 'rgb(0, 50, 150)',  # Consistent dark blue for global values
-        width = 3,  # Thicker line for better visibility
+        color = 'rgb(0, 50, 150)',
+        width = 3,
         dash = 'solid'
       ),
       marker = list(
-        size = 6,  # Larger points for better visibility
+        size = 6, 
         color = 'rgb(0, 50, 150)',
         symbol = 'circle'
       )
@@ -709,7 +697,7 @@ server <- function(input, output, session) {
       polar = list(
         radialaxis = list(
           visible = TRUE,
-          range = c(0, 4.2),  # Extend the range a bit for better visibility
+          range = c(0, 4.2),
           tickvals = c(1, 2, 3, 4),
           ticktext = c("Never", "Rarely", "Sometimes", "Very frequently")
         )
@@ -719,7 +707,7 @@ server <- function(input, output, session) {
         x = 0.5, 
         y = 1.1, 
         orientation = 'h',
-        traceorder = "normal"  # Ensure consistent legend order
+        traceorder = "normal"
       ),
       margin = list(t = 100, b = 50, l = 50, r = 50),
       autosize = TRUE,
@@ -729,8 +717,8 @@ server <- function(input, output, session) {
     return(p)
   })
   
-  
-  output$selected_cluster_barchart <- renderPlotly({
+  # Box plot with mental health metrics
+  output$selected_cluster_boxplots <- renderPlotly({
     req(cluster_data())
     
     all_data <- cluster_data()
@@ -812,6 +800,162 @@ server <- function(input, output, session) {
               } else {
                 paste("Respondents in Cluster", unique(data$cluster))
               })
+  })
+  
+  # Line graph
+  output$cluster_mental_health_comparison <- renderPlotly({
+    req(cluster_data())
+    
+    data <- cluster_data()
+    selected_data <- selected_cluster_data()
+    
+    mental_health_vars <- c("anxiety", "depression", "insomnia", "ocd")
+    available_vars <- intersect(mental_health_vars, colnames(data))
+    
+    if(length(available_vars) == 0) {
+      return(plotly_empty() %>% layout(title = "No mental health data available"))
+    }
+    
+    cluster_stats <- data %>%
+      group_by(cluster) %>%
+      summarise(
+        across(all_of(available_vars), list(
+          mean = ~mean(.x, na.rm = TRUE),
+          median = ~median(.x, na.rm = TRUE),
+          sd = ~sd(.x, na.rm = TRUE),
+          q75 = ~quantile(.x, 0.75, na.rm = TRUE)
+        ), .names = "{.col}_{.fn}"),
+        cluster_size = n(),
+        avg_hours = mean(hours_per_day, na.rm = TRUE),
+        music_helps_pct = mean(music_effects == "Improve", na.rm = TRUE) * 100,
+        .groups = 'drop'
+      )
+
+    mean_cols <- paste0(available_vars, "_mean")
+    cluster_means <- cluster_stats %>%
+      select(cluster, cluster_size, avg_hours, music_helps_pct, all_of(mean_cols)) %>%
+      tidyr::pivot_longer(cols = all_of(mean_cols),
+                          names_to = "Metric",
+                          values_to = "Average_Score") %>%
+      mutate(Metric = gsub("_mean$", "", Metric),
+             Metric = tools::toTitleCase(Metric))
+
+    sd_cols <- paste0(available_vars, "_sd")
+    cluster_sds <- cluster_stats %>%
+      select(cluster, all_of(sd_cols)) %>%
+      tidyr::pivot_longer(cols = all_of(sd_cols),
+                          names_to = "Metric",
+                          values_to = "SD") %>%
+      mutate(Metric = gsub("_sd$", "", Metric),
+             Metric = tools::toTitleCase(Metric))
+
+    cluster_plot_data <- cluster_means %>%
+      left_join(cluster_sds, by = c("cluster", "Metric"))
+
+    cluster_colors <- viridis::viridis(length(unique(cluster_plot_data$cluster)), option = "plasma")
+    names(cluster_colors) <- sort(unique(cluster_plot_data$cluster))
+    
+
+    p <- plot_ly()
+    
+    for(clust in unique(cluster_plot_data$cluster)) {
+      cluster_subset <- cluster_plot_data %>% filter(cluster == clust)
+      
+      is_selected <- !is.null(selected_data) && clust == unique(selected_data$cluster)
+      
+      p <- p %>% add_trace(
+        data = cluster_subset,
+        x = ~Metric,
+        y = ~Average_Score,
+        error_y = list(array = ~SD, color = cluster_colors[as.character(clust)]),
+        name = paste0("Cluster ", clust, " (n=", unique(cluster_subset$cluster_size), ")"),
+        type = "scatter",
+        mode = "lines+markers",
+        line = list(width = if(is_selected) 4 else 2.5, color = cluster_colors[as.character(clust)]),
+        marker = list(size = if(is_selected) 12 else 8, color = cluster_colors[as.character(clust)]),
+        text = ~paste(
+          "Cluster:", clust, "<br>",
+          "Size:", cluster_size, "people<br>",
+          "Score:", round(Average_Score, 2), "±", round(SD, 2), "<br>",
+          "Avg Hours/Day:", round(avg_hours, 1), "<br>",
+          "Music Helps:", round(music_helps_pct, 1), "%"
+        ),
+        hovertemplate = "%{text}<extra></extra>"
+      )
+    }
+    
+    p <- p %>% layout(
+      title = list(
+        text = "Mental Health Profiles by Cluster<br><sub>Error bars show ±1 standard deviation</sub>",
+        font = list(size = 16)
+      ),
+      xaxis = list(title = "Mental Health Metrics"),
+      yaxis = list(title = "Average Score (0-10)", range = c(0, 10)),
+      legend = list(title = list(text = "Cluster"))
+    )
+    
+    return(p)
+  })
+  
+  # Age bar chart
+  output$cluster_demographics <- renderPlotly({
+    req(cluster_data())
+    
+    data <- cluster_data()
+    selected_data <- selected_cluster_data()
+
+    demographic_vars <- c("age", "primary_streaming_service")
+    available_vars <- intersect(demographic_vars, colnames(data))
+    
+    if(length(available_vars) == 0) {
+      return(plotly_empty() %>% layout(title = "No demographic data available"))
+    }
+
+    if("age" %in% available_vars) {
+      data$age_group <- cut(data$age, 
+                            breaks = c(0, 20, 30, 40, 50, 100), 
+                            labels = c("Under 20", "20-29", "30-39", "40-49", "50+"),
+                            include.lowest = TRUE)
+      
+      age_summary <- data %>%
+        group_by(cluster, age_group) %>%
+        summarise(count = n(), .groups = 'drop') %>%
+        group_by(cluster) %>%
+        mutate(percentage = count / sum(count) * 100) %>%
+        filter(!is.na(age_group))
+
+      age_summary$is_selected <- FALSE
+      if(!is.null(selected_data)) {
+        selected_cluster_num <- unique(selected_data$cluster)
+        age_summary$is_selected <- age_summary$cluster == selected_cluster_num
+      }
+      
+      age_colors <- c("Under 20" = "#FF6B6B", "20-29" = "#4ECDC4", "30-39" = "#45B7D1", 
+                      "40-49" = "#96CEB4", "50+" = "#FECA57")
+      
+      p <- plot_ly(age_summary,
+                   x = ~as.factor(cluster),
+                   y = ~percentage,
+                   color = ~age_group,
+                   colors = age_colors,
+                   type = "bar",
+                   opacity = ~ifelse(is_selected, 1.0, 0.6),
+                   text = ~paste(count, "people"),
+                   textposition = "inside",
+                   hovertemplate = paste("Cluster %{x}<br>",
+                                         "Age Group: %{data.name}<br>",
+                                         "Percentage: %{y:.1f}%<br>",
+                                         "Count: %{text}<br>",
+                                         "<extra></extra>")) %>%
+        layout(title = "Age Group Distribution by Cluster",
+               xaxis = list(title = "Cluster"),
+               yaxis = list(title = "Percentage"),
+               barmode = "stack")
+      
+      return(p)
+    }
+    
+    return(plotly_empty() %>% layout(title = "Age data not available"))
   })
   
 }

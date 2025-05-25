@@ -11,7 +11,8 @@ ui <- dashboardPage(
       menuItem("Frequency Analysis", tabName = "frequency_analysis", icon = icon("music")),
       menuItem("Hours vs. Health", tabName = "hours_vs_health", icon = icon("clock-o")),
       menuItem("Mental Health Clusters", tabName = "mental_health_clusters", icon = icon("brain"))
-    )
+      
+      )
   ),
   dashboardBody(
     tabItems(
@@ -153,25 +154,40 @@ ui <- dashboardPage(
                 ),
                 box(title = "Mental Health Profile Clusters", status = "info", solidHeader = TRUE,
                     plotlyOutput("mental_health_cluster_plot", height = "500px"),
+                    p("Click on any point to select a cluster and see detailed analysis below."),
                     width = 8
                 )
               ),
-             fluidRow(
-               box(title = "Music Profile", status = "primary", solidHeader = TRUE,
-                   plotlyOutput("selected_cluster_radar", height = "600px"),  # Increased height here
-                   width = 6
-               ),
-               box(title = "Mental Health Profile", status = "info", solidHeader = TRUE,
-                   plotlyOutput("selected_cluster_barchart", height = "600px"),  # Also increased for consistency
-                   width = 6
-               )
-             ),
+
+              fluidRow(
+                box(title = "Music Profile", status = "primary", solidHeader = TRUE,
+                    plotlyOutput("selected_cluster_radar", height = "600px"),
+                    width = 6
+                ),
+                box(title = "Mental Health Profile", status = "info", solidHeader = TRUE,
+                    plotlyOutput("selected_cluster_boxplots", height = "600px"),
+                    width = 6
+                )
+              ),
+              fluidRow(
+                box(title = "Mental Health Metrics Comparison", status = "success", solidHeader = TRUE,
+                    plotlyOutput("cluster_mental_health_comparison", height = "400px"),
+                    p("Compare average mental health scores across all clusters. Selected cluster is highlighted in orange."),
+                    width = 6
+                ),
+                box(title = "Age Demographics by Cluster", status = "info", solidHeader = TRUE,
+                    plotlyOutput("cluster_demographics", height = "400px"),
+                    p("Age group distribution reveals demographic patterns within each mental health cluster."),
+                    width = 6
+                )
+              ),
               fluidRow(
                 box(title = "Data Table", status = "info", solidHeader = TRUE,
                     dataTableOutput("cluster_data_table"),
                     width = 12
                 )
               )
+             
       )
       
     )
