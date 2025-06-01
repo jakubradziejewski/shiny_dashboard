@@ -16,11 +16,11 @@ music_raw <- read_csv("music.csv", show_col_types = FALSE)
 music_clean_names <- music_raw %>%
   clean_names()
 
-bpm_median <- median(music_clean_names$bpm[music_clean_names$bpm <= 1000], na.rm = TRUE)
+bpm_median <- median(music_clean_names$bpm[music_clean_names$bpm <= 200], na.rm = TRUE)
 
 music_clean_names <- music_clean_names %>%
-  mutate(bpm = ifelse(is.na(bpm) | bpm > 500, bpm_median, bpm)) %>%
-  filter(hours_per_day < 20)
+  mutate(bpm = ifelse(is.na(bpm) | bpm > 200, bpm_median, bpm)) %>%
+  filter(hours_per_day < 18)
 interval_cols <- music_clean_names %>%
   select(anxiety, depression, insomnia, ocd)
 
@@ -439,7 +439,7 @@ server <- function(input, output, session) {
         rv$previous_cluster_var1 != input$cluster_var1 || 
         rv$previous_cluster_var2 != input$cluster_var2 || 
         rv$previous_num_clusters != input$num_clusters) 
-      {
+    {
       rv$selected_cluster <- NULL
       rv$previous_cluster_var1 <- input$cluster_var1
       rv$previous_cluster_var2 <- input$cluster_var2
@@ -505,7 +505,7 @@ server <- function(input, output, session) {
     req(input$cluster_var1)
     all_clustering_vars <- names(music_processed)[sapply(music_processed, is.numeric)]
     y_choices <- setdiff(all_clustering_vars, input$cluster_var1)
-
+    
     updateSelectInput(session, "cluster_var2",
                       choices = y_choices,
                       selected = if(input$cluster_var2 != input$cluster_var1) input$cluster_var2 else y_choices[1])
@@ -514,7 +514,7 @@ server <- function(input, output, session) {
   observeEvent(input$cluster_var2, {
     req(input$cluster_var2)
     all_clustering_vars <- names(music_processed)[sapply(music_processed, is.numeric)]
-
+    
     x_choices <- setdiff(all_clustering_vars, input$cluster_var2)
     updateSelectInput(session, "cluster_var1",
                       choices = x_choices,
@@ -531,10 +531,10 @@ server <- function(input, output, session) {
       rv$selected_cluster <- NULL
       return(NULL)
     }
-
+    
     filtered_data <- cluster_data() %>%
       filter(cluster == rv$selected_cluster)
-
+    
     if(nrow(filtered_data) == 0) {
       rv$selected_cluster <- NULL
       return(NULL)
@@ -673,7 +673,7 @@ server <- function(input, output, session) {
         symbol = 'circle'
       )
     )
-
+    
     p <- p %>% add_trace(
       data = radar_long_all,
       r = ~Frequency,
@@ -830,7 +830,7 @@ server <- function(input, output, session) {
         music_helps_pct = mean(music_effects == "Improve", na.rm = TRUE) * 100,
         .groups = 'drop'
       )
-
+    
     mean_cols <- paste0(available_vars, "_mean")
     cluster_means <- cluster_stats %>%
       select(cluster, cluster_size, avg_hours, music_helps_pct, all_of(mean_cols)) %>%
@@ -839,7 +839,7 @@ server <- function(input, output, session) {
                           values_to = "Average_Score") %>%
       mutate(Metric = gsub("_mean$", "", Metric),
              Metric = tools::toTitleCase(Metric))
-
+    
     sd_cols <- paste0(available_vars, "_sd")
     cluster_sds <- cluster_stats %>%
       select(cluster, all_of(sd_cols)) %>%
@@ -848,14 +848,14 @@ server <- function(input, output, session) {
                           values_to = "SD") %>%
       mutate(Metric = gsub("_sd$", "", Metric),
              Metric = tools::toTitleCase(Metric))
-
+    
     cluster_plot_data <- cluster_means %>%
       left_join(cluster_sds, by = c("cluster", "Metric"))
-
+    
     cluster_colors <- viridis::viridis(length(unique(cluster_plot_data$cluster)), option = "plasma")
     names(cluster_colors) <- sort(unique(cluster_plot_data$cluster))
     
-
+    
     p <- plot_ly()
     
     for(clust in unique(cluster_plot_data$cluster)) {
@@ -903,14 +903,14 @@ server <- function(input, output, session) {
     
     data <- cluster_data()
     selected_data <- selected_cluster_data()
-
+    
     demographic_vars <- c("age", "primary_streaming_service")
     available_vars <- intersect(demographic_vars, colnames(data))
     
     if(length(available_vars) == 0) {
       return(plotly_empty() %>% layout(title = "No demographic data available"))
     }
-
+    
     if("age" %in% available_vars) {
       data$age_group <- cut(data$age, 
                             breaks = c(0, 20, 30, 40, 50, 100), 
@@ -923,7 +923,7 @@ server <- function(input, output, session) {
         group_by(cluster) %>%
         mutate(percentage = count / sum(count) * 100) %>%
         filter(!is.na(age_group))
-
+      
       age_summary$is_selected <- FALSE
       if(!is.null(selected_data)) {
         selected_cluster_num <- unique(selected_data$cluster)
@@ -956,6 +956,355 @@ server <- function(input, output, session) {
     }
     
     return(plotly_empty() %>% layout(title = "Age data not available"))
+  })
+  
+  ### Enhanced Correlation Heatmap Tab with Category Filtering and Separate Radar Plots ###
+  
+  # Define category groups
+  category_groups <- list(
+    "Genres" = c("frequency_classical", "frequency_country", "frequency_edm", "frequency_folk", 
+                 "frequency_gospel", "frequency_hip_hop", "frequency_jazz", "frequency_k_pop", 
+                 "frequency_latin", "frequency_lofi", "frequency_metal", "frequency_pop", 
+                 "frequency_r_b", "frequency_rap", "frequency_rock", "frequency_video_game_music"),
+    "Mental Health" = c("anxiety", "depression", "insomnia", "ocd"),
+    "Music Background" = c("instrumentalist", "composer", "while_working", "exploratory", "foreign_languages"),
+    "Music Characteristics" = c("bpm", "hours_per_day", "music_effects"),
+    "Demographics" = c("age")
+  )
+  
+  # Prepare correlation data with category filtering
+  correlation_data <- reactive({
+    req(input$selected_category_groups)
+    
+    # Get selected categories
+    selected_categories <- c()
+    if ("genres" %in% input$selected_category_groups) {
+      selected_categories <- c(selected_categories, category_groups$Genres)
+    }
+    if ("mental_health" %in% input$selected_category_groups) {
+      selected_categories <- c(selected_categories, category_groups$`Mental Health`)
+    }
+    if ("music_background" %in% input$selected_category_groups) {
+      selected_categories <- c(selected_categories, category_groups$`Music Background`)
+    }
+    if ("music_characteristics" %in% input$selected_category_groups) {
+      selected_categories <- c(selected_categories, category_groups$`Music Characteristics`)
+    }
+    if ("demographics" %in% input$selected_category_groups) {
+      selected_categories <- c(selected_categories, category_groups$Demographics)
+    }
+    
+    # If no categories selected, use all available variables
+    if (length(selected_categories) == 0) {
+      selected_categories <- names(music_processed)[sapply(music_processed, function(x) is.numeric(x) || is.logical(x))]
+      selected_categories <- setdiff(selected_categories, c("timestamp", "permissions"))
+    }
+    
+    # Filter for existing columns only
+    available_categories <- intersect(selected_categories, names(music_processed))
+    
+    if (length(available_categories) == 0) {
+      return(NULL)
+    }
+    
+    # Prepare data for correlation
+    corr_data <- music_processed %>%
+      select(all_of(available_categories))
+    
+    # Convert different data types to numeric
+    corr_data <- corr_data %>%
+      mutate(
+        # Convert frequency columns to numeric (assuming they have levels like Never, Rarely, Sometimes, Very frequently)
+        across(starts_with("frequency_"), ~{
+          if (is.factor(.)) {
+            as.numeric(.)
+          } else if (is.character(.)) {
+            factor_levels <- c("Never", "Rarely", "Sometimes", "Very frequently")
+            as.numeric(factor(., levels = factor_levels))
+          } else {
+            as.numeric(.)
+          }
+        }),
+        # Convert logical columns to numeric
+        across(where(is.logical), as.numeric),
+        # Convert character columns that might be Yes/No to numeric
+        across(where(is.character), ~{
+          if (all(na.omit(.) %in% c("Yes", "No"))) { # Handle NA values correctly
+            as.numeric(. == "Yes")
+          } else if (is.factor(.)) { # If it's already a factor (like music_effects)
+            as.numeric(.)
+          }
+          else {
+            # For other character columns, attempt to factorize then numeric,
+            # but be cautious as this might not always be meaningful.
+            # This part might need specific handling if other char columns are meant for correlation.
+            # For now, we assume they are not primary correlation targets unless specified.
+            as.numeric(as.factor(.))
+          }
+        }),
+        # Ensure other columns are numeric
+        across(everything(), as.numeric)
+      )
+    
+    # Remove columns with all NA or constant values
+    corr_data <- corr_data %>%
+      select(where(~!all(is.na(.)) && length(unique(na.omit(.))) > 1))
+    
+    # Check if we have any valid numeric data
+    if (ncol(corr_data) < 2) {
+      return(NULL)
+    }
+    
+    # Calculate correlation matrix
+    cor_matrix <- cor(corr_data, use = "pairwise.complete.obs")
+    
+    return(list(
+      matrix = cor_matrix,
+      data = corr_data,
+      raw_data = music_processed,
+      selected_vars = names(corr_data)
+    ))
+  })
+  
+  # Find category combinations above threshold
+  category_combinations <- reactive({
+    req(correlation_data(), input$correlation_threshold)
+    
+    cor_data <- correlation_data()
+    if (is.null(cor_data)) return(data.frame())
+    
+    cor_matrix <- cor_data$matrix
+    mental_health_vars <- intersect(category_groups$`Mental Health`, rownames(cor_matrix))
+    
+    if (length(mental_health_vars) == 0) {
+      return(data.frame())
+    }
+    
+    # Find variables that correlate strongly with any mental health variable
+    combinations <- list()
+    
+    for (mh_var in mental_health_vars) {
+      # Find variables with strong correlation to this mental health variable
+      correlations <- cor_matrix[mh_var, ]
+      strong_correlations <- correlations[abs(correlations) >= input$correlation_threshold & 
+                                            names(correlations) != mh_var & 
+                                            !is.na(correlations)]
+      
+      if (length(strong_correlations) > 0) {
+        combinations[[mh_var]] <- names(strong_correlations)
+      }
+    }
+    
+    # Create combination data frame
+    combination_df <- data.frame()
+    for (mh_var in names(combinations)) {
+      for (corr_var in combinations[[mh_var]]) {
+        clean_var_name <- gsub("frequency_|_", " ", corr_var)
+        clean_var_name <- tools::toTitleCase(clean_var_name)
+        
+        combination_df <- rbind(combination_df, data.frame(
+          mental_health_var = mh_var,
+          correlated_var = corr_var,
+          correlation = cor_matrix[mh_var, corr_var],
+          combination_name = paste(tools::toTitleCase(gsub("_", " ", mh_var)), "×", clean_var_name),
+          stringsAsFactors = FALSE
+        ))
+      }
+    }
+    
+    return(combination_df)
+  })
+  
+  # Create correlation heatmap with category filtering
+  output$correlation_heatmap_plot <- renderPlotly({
+    req(correlation_data(), input$correlation_threshold)
+    
+    cor_data <- correlation_data()
+    if (is.null(cor_data)) {
+      return(plotly_empty() %>% 
+               layout(title = "No valid numeric data found for selected categories"))
+    }
+    
+    cor_matrix <- cor_data$matrix
+    
+    # Convert correlation matrix to long format for plotting
+    cor_long <- expand.grid(Var1 = rownames(cor_matrix), Var2 = colnames(cor_matrix))
+    cor_long$value <- as.vector(cor_matrix)
+    
+    # Clean up variable names for better display
+    cor_long$Var1_clean <- gsub("frequency_", "", cor_long$Var1)
+    cor_long$Var1_clean <- tools::toTitleCase(gsub("_", " ", cor_long$Var1_clean))
+    cor_long$Var2_clean <- gsub("frequency_", "", cor_long$Var2)
+    cor_long$Var2_clean <- tools::toTitleCase(gsub("_", " ", cor_long$Var2_clean))
+    
+    # Determine if a cell should be highlighted
+    cor_long$is_highlighted <- abs(cor_long$value) >= input$correlation_threshold | 
+      cor_long$Var1 == cor_long$Var2
+    
+    # Create z_for_plot for dual colorscale
+    cor_long$z_for_plot <- ifelse(
+      cor_long$is_highlighted,
+      cor_long$value,
+      2 + (cor_long$value + 1) / 2 
+    )
+    
+    # Define colorscale
+    zmin_plot <- -1
+    zmax_plot <- 3 
+    z_span <- zmax_plot - zmin_plot
+    
+    vibrant_colors_def <- list(
+      list(0, "#053061"), list(0.1, "#2166AC"), list(0.2, "#4393C3"),
+      list(0.3, "#92C5DE"), list(0.4, "#D1E5F0"), list(0.5, "#F7F7F7"),
+      list(0.6, "#FDBF6F"), list(0.7, "#FF7F00"), list(0.8, "#E31A1C"),
+      list(0.9, "#B10026"), list(1, "#67001F")
+    )
+    
+    vibrant_transformed <- lapply(vibrant_colors_def, function(item) {
+      p_orig_norm = item[[1]]
+      new_norm = ((-1 + 2 * p_orig_norm) - zmin_plot) / z_span 
+      list(new_norm, item[[2]])
+    })
+    
+    gray_colors_def <- list(
+      list(0, "#BEBEBE"), list(0.5, "#F0F0F0"), list(1, "#BEBEBE")
+    )
+    
+    gray_transformed <- lapply(gray_colors_def, function(item) {
+      p_gray_norm = item[[1]]
+      z_val_for_gray = 2 + p_gray_norm 
+      new_norm = (z_val_for_gray - zmin_plot) / z_span
+      list(new_norm, item[[2]])
+    })
+    
+    final_colorscale <- c(vibrant_transformed, gray_transformed)
+    final_colorscale <- final_colorscale[order(sapply(final_colorscale, `[[`, 1))]
+    
+    p <- plot_ly(
+      data = cor_long,
+      x = ~Var2_clean,
+      y = ~Var1_clean,
+      z = ~z_for_plot,
+      customdata = ~value,
+      type = "heatmap",
+      colorscale = final_colorscale,
+      zmin = zmin_plot,
+      zmax = zmax_plot,
+      hovertemplate = paste(
+        "<b>%{y} vs %{x}</b><br>",
+        "Correlation: %{customdata:.3f}<br>",
+        "<extra></extra>"
+      ),
+      showscale = TRUE,
+      colorbar = list(
+        title = "Correlation",
+        titleside = "right",
+        tickvals = c(-1, -0.5, 0, 0.5, 1),
+        ticktext = c("-1", "-0.5", "0", "0.5", "1")
+      )
+    ) %>%
+      layout(
+        title = list(
+          text = paste("Correlation Matrix - Highlighting |r| ≥", input$correlation_threshold),
+          font = list(size = 16)
+        ),
+        xaxis = list(
+          title = "",
+          tickangle = 45,
+          side = "bottom",
+          categoryorder = "array",
+          categoryarray = unique(cor_long$Var2_clean[order(match(cor_long$Var2, colnames(cor_matrix)))])
+        ),
+        yaxis = list(
+          title = "",
+          autorange = "reversed",
+          categoryorder = "array",
+          categoryarray = unique(cor_long$Var1_clean[order(match(cor_long$Var1, rownames(cor_matrix)))])
+        ),
+        margin = list(l = 120, r = 50, t = 100, b = 120)
+      )
+    
+    if (input$show_values) {
+      annotation_data <- cor_long[abs(cor_long$value) >= input$correlation_threshold & 
+                                    cor_long$Var1 != cor_long$Var2 &
+                                    !is.na(cor_long$value), ] # Ensure no NA values for annotation
+      
+      if (nrow(annotation_data) > 0) {
+        p <- p %>% add_annotations(
+          data = annotation_data,
+          x = ~Var2_clean,
+          y = ~Var1_clean,
+          text = ~round(value, 2),
+          showarrow = FALSE,
+          font = list(color = "white", size = 10, family = "Arial")
+        )
+      }
+    }
+    
+    return(p)
+  })
+  
+  # Create strong correlations summary table
+  output$strong_correlations_table <- renderDataTable({
+    req(correlation_data(), input$correlation_threshold)
+    
+    cor_data <- correlation_data()
+    if (is.null(cor_data)) {
+      return(datatable(data.frame(Message = "No valid data for selected categories")))
+    }
+    
+    cor_matrix <- cor_data$matrix
+    
+    cor_long <- expand.grid(Var1 = rownames(cor_matrix), Var2 = colnames(cor_matrix))
+    cor_long$Correlation <- as.vector(cor_matrix)
+    
+    strong_cors <- cor_long %>%
+      filter(abs(Correlation) >= input$correlation_threshold,
+             Var1 != Var2,
+             !is.na(Correlation)) %>%
+      filter(as.numeric(factor(Var1)) < as.numeric(factor(Var2))) %>%
+      arrange(desc(abs(Correlation)))
+    
+    if (nrow(strong_cors) == 0) {
+      return(datatable(data.frame(Message = paste("No correlations found above threshold", input$correlation_threshold))))
+    }
+    
+    strong_cors$Variable1 <- gsub("frequency_", "", strong_cors$Var1)
+    strong_cors$Variable1 <- tools::toTitleCase(gsub("_", " ", strong_cors$Variable1))
+    
+    strong_cors$Variable2 <- gsub("frequency_", "", strong_cors$Var2)
+    strong_cors$Variable2 <- tools::toTitleCase(gsub("_", " ", strong_cors$Variable2))
+    
+    strong_cors$Strength <- ifelse(abs(strong_cors$Correlation) >= 0.7, "Strong",
+                                   ifelse(abs(strong_cors$Correlation) >= 0.5, "Moderate", "Weak"))
+    
+    strong_cors$Direction <- ifelse(strong_cors$Correlation > 0, "Positive", "Negative")
+    
+    display_data <- strong_cors %>%
+      select(Variable1, Variable2, Correlation, Strength, Direction) %>%
+      mutate(Correlation = round(Correlation, 3))
+    
+    datatable(
+      display_data,
+      options = list(
+        pageLength = 15,
+        scrollX = TRUE,
+        order = list(list(2, 'desc'))
+      ),
+      caption = paste("Variable pairs with |correlation| ≥", input$correlation_threshold),
+      rownames = FALSE
+    ) %>%
+      formatStyle(
+        "Correlation",
+        backgroundColor = styleInterval(
+          cuts = c(-0.7, -0.5, -0.3, 0.3, 0.5, 0.7),
+          values = c("#053061", "#2166AC", "#92C5DE", "#F7F7F7", "#FDBF6F", "#E31A1C", "#67001F")
+        ),
+        color = styleInterval(
+          cuts = c(-0.3, 0.3),
+          values = c("white", "black", "white")
+        )
+      )
   })
   
 }
