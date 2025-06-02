@@ -5,6 +5,6 @@ account: mi-zuri
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 14862488
-bundleId: 10379573
+bundleId: 10382436
 url: https://mi-zuri.shinyapps.io/shiny_dashboard/
 version: 1

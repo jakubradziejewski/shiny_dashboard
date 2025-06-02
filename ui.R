@@ -13,6 +13,12 @@ ui <- dashboardPage(
       menuItem("Frequency Analysis", tabName = "frequency_analysis", icon = icon("music")),
       menuItem("Hours vs. Health", tabName = "hours_vs_health", icon = icon("clock")),
       menuItem("Mental Health Clusters", tabName = "mental_health_clusters", icon = icon("brain"))
+    ),
+    div(
+      style = "position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); text-align: center; width: 90%;",
+      tags$img(src = "logo.svg", 
+               alt = "Logo", 
+               style = "max-width: 100%; max-height: 80px; height: auto;")
     )
   ),
   dashboardBody(
